@@ -32,6 +32,8 @@ class Board:
     def __init__(self, screen):
         self.screen = screen
 
+    
+
     def setup (self):
         
         
@@ -356,13 +358,13 @@ class Board:
         if lines == 0:
             return
         if lines == 1:
-            self.score += 40 * (self.level + 1)
+            self.score += 4 * (self.level + 1)
         if lines == 2:
-            self.score += 100 * (self.level + 1)
+            self.score += 10 * (self.level + 1)
         if lines == 3:
-            self.score += 300 * (self.level + 1)
+            self.score += 30 * (self.level + 1)
         if lines == 4:
-            self.score += 1200 * (self.level + 1)
+            self.score += 120 * (self.level + 1)
 
     def updateLvl(self): #when the lvlscore is at a certain threshold, (maybe 5k, 10k, then 20k) (5k = lvls 1-10, 10k = lvls 11-20, 20k = lvls 21+), increase the level by one
         if (self.linesInLevel >= self.level * 10 + 10) or (self.linesInLevel >= max(100, self.level * 10 - 50)):
@@ -427,7 +429,7 @@ class Board:
         if (self.checkBelow(self.falling)):
             self.ticksTouching += 1
             self.falling.update_pos(self.falling.centerX, self.falling.centerY - Block.dim)
-            if self.ticksTouching == 5:
+            if self.ticksTouching == 50:
                 self.place()
         else:
             self.ticksTouching = 0
@@ -521,7 +523,7 @@ class Board:
         for block in blocks:
 
             #check outofbounds and collide
-            if block.x < 7 * Block.dim or block.x >= 17 * Block.dim or self.onGroundBool[int(block.x / Block.dim) - 7][int(block.y / Block.dim)]:
+            if block.x < 7 * Block.dim or block.x >= 17 * Block.dim or block.y >= 23 * Block.dim or self.onGroundBool[int(block.x / Block.dim) - 7][int(block.y / Block.dim)]:
                 return True
 
         return False
@@ -715,6 +717,7 @@ class Board:
         
 
         return moves
+    
 
     def helper(self, tetromino, rotation):
 
@@ -723,7 +726,7 @@ class Board:
         for i in range (6):
             self.tryMove(tetromino, "left")
 
-        moves.append([self.countHoles(tetromino, rotation), rotation, 0])
+        moves.append([self.evalMove(tetromino, rotation), rotation, 0])
 
         blocks = tetromino.return_blocks()
         heights = set()
@@ -733,11 +736,41 @@ class Board:
 
         for i in range(10 - len(heights) + 1):
             self.tryMove(tetromino, "right")
-            moves.append([self.countHoles(tetromino, rotation), rotation, i + 1])
+            moves.append([self.evalMove(tetromino, rotation), rotation, i + 1])
         
         return moves
     
-    def countHoles(self, tetromino, rotation):
+    def evalMove(self, tetromino, rotation):
+
+        # factors to consider:
+        #  - lines cleared, make it scale exponentially, 4 lines is a lot better than 1
+        #  - holes made
+        #  - flatness of new board
+        #  - in the right most and not a line block
+        #  - height of the placed block
+        #  - death with placement
+
+        startingUnevenness = 0
+
+        first = 0
+        second = 0
+
+        for y in range(23):
+            if (self.onGroundBool[0][23 - y]):
+                first = 23 - y
+
+        for x in range(9): #find the highest block in each column
+
+            for y in range (23):
+
+                if (self.onGroundBool[x][23 - y]):
+                    second = y
+
+            startingUnevenness += abs(first - second)
+
+            first = second
+            second = 0
+
         match tetromino.name:
             case "I_Piece":
                 fakeShadow = I_Block(Block.dim * 12, Block.dim * 2)
@@ -780,8 +813,14 @@ class Board:
 
         linesCleared = 0
 
+        loss = False
+
         for yValue in heights: #check if all the positions are taken in the row
             hasEmpty = False
+
+            if (yValue > 3):
+                loss = True
+
 
             for xValue in range(10): #xValue = xValue * Block.dim + 
                 colliding = False
@@ -796,14 +835,45 @@ class Board:
             if not hasEmpty:
                 linesCleared += 1
         
+        uneveness = 0
+        overRight = False
+
+        first = 0
+        second = 0
+
+        for y in range(23):
+            if (self.onGroundBool[0][23 - y]):
+                first = 23 - y
+
+            for block in tetroBlocks:
+                if block.x == Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    first = 23 - y
+
+        for x in range(9): #find the highest block in each column
+
+            for y in range (23):
+
+                if (self.onGroundBool[x][23 - y]):
+                    second = y
+                for block in tetroBlocks:
+                    if block.x == x * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                        second = 23 - y
+
+            uneveness += abs(first - second)
+
+            first = second
+            second = 0
         
         
+                    
 
         holes = 0
 
         y = 1
         lowY = 100
         highY = -1
+
+
 
         for block in tetroBlocks:
             holeUnder = True
@@ -835,7 +905,70 @@ class Board:
                     holes += 1
                 y+= 1
 
-        return (holes /((lowY + highY) /2))+ ((lowY + highY )/ 4) - linesCleared
+        
+        for block in tetroBlocks: # checking for if the block is covering on the right column
+            if (block.x == Block.dim * 16): 
+                overRight = True
+
+        secondLast = 0
+        veryLast = 0
+
+        for y in range (23):
+
+            if (self.onGroundBool[8][23 - y]):
+                secondLast = y
+            for block in tetroBlocks:
+                if block.x == (x + 8) * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    secondLast = 23 - y
+
+        for y in range (23):
+
+            if (self.onGroundBool[9][23 - y]):
+                veryLast = y
+            for block in tetroBlocks:
+                if block.x == (x + 8) * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    veryLast = 23 - y
+
+
+        lastHeight = abs(veryLast - secondLast)
+
+
+        rating = (holes / ((lowY + highY) / 2) * 3)+ ((lowY + highY )/ 4) + uneveness/30 - (linesCleared * linesCleared)
+
+        #first count if holes are under then do this
+        # if (overRight and tetromino.name != 'I_Piece'):
+        #     rating += 5
+        # elif (overRight and tetromino.name == 'I_Piece' and lastHeight < 4):
+        #     rating += 3
+        # elif (overRight and tetromino.name == 'I_Piece'):
+        #     rating -= 5
+
+
+        # if (linesCleared == 1):
+        #     rating -= 1
+        # elif (linesCleared == 2):
+        #     rating -= 4
+        # elif (linesCleared == 3):
+        #     rating -= 9
+        # elif (linesCleared == 4):
+        #     rating -= 20
+
+        # return [linesCleared, holes, (lowY + highY)/2, abs(startingUnevenness - uneveness), loss, right]
+        
+
+        
+        
+        
+
+        if (loss):
+            rating += 20
+        
+
+        
+
+        return rating
+    
+    
 
     def make_move(self, rotate, movements):
         match rotate:
@@ -857,6 +990,432 @@ class Board:
 
         self.hardDrop()
         
+    def possibleMoves(self):
+        noHold = []
+
+        match self.falling.name: #all the possible cases for the first block
+            case "I_Piece": 
+                noHold.extend(self.findMoves("I", 0))
+            case "O_Piece": 
+                noHold.extend(self.findMoves("O", 0))
+            case "S_Piece":
+                noHold.extend(self.findMoves("S", 0))
+            case "Z_Piece":
+                noHold.extend(self.findMoves("Z", 0))
+            case _:
+                noHold.extend(self.findMoves(self.falling.name[0:1], 0)) 
+
+        name = self.falling.name
+
+        if (self.holdable and self.holdPiece != None):
+            hold = []
+            
+            
+
+            if (self.holdPiece == None):
+
+
+                lookingAt = self.q.get()
+
+                self.q.put(lookingAt)
+
+                for i in range(4):
+                    self.q.put(self.q.get())
+            else:
+                lookingAt = self.holdPiece
+            
+            #print(firstInQueue.name)
+
+            match lookingAt.name: #all the possible cases for the first block
+                case "I_Piece": 
+                    hold.extend(self.findMoves("I", 1))
+                case "O_Piece": 
+                    hold.extend(self.findMoves("O", 1))
+                case "S_Piece":
+                    hold.extend(self.findMoves("S", 1))
+                case "Z_Piece":
+                    hold.extend(self.findMoves("Z", 1))
+                case _:
+                    hold.extend(self.findMoves(lookingAt.name[0:1]), 1)
+
+            return noHold + hold
+        
+        return noHold
+            
+        
+        
+        
+        pass
+
+    def findMoves(self, tetromino, holding):
+        moves = []
+
+        if (tetromino == "I" or tetromino == "S" or tetromino == "Z"):
+
+            
+            if tetromino == "I":
+                fakePiece = I_Block(Block.dim * 12, Block.dim * 2)
+            elif tetromino == "S":
+                fakePiece = S_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = Z_Block(Block.dim * 11, Block.dim * 2)
+            
+            moves.extend(self.helperNew(fakePiece, 0, holding))
+
+            if tetromino == "I":
+                fakePiece = I_Block(Block.dim * 12, Block.dim * 2)
+            elif tetromino == "S":
+                fakePiece = S_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = Z_Block(Block.dim * 11, Block.dim * 2)
+
+            # didntWork = False
+
+            # if (self.tryRotate(fakePiece, "counter") == 0):
+            #     print("fuck")
+            #     didntWork = True
+            #     fakePiece.rotate(-90)
+
+            #     for block in fakePiece.return_blocks():
+            #         print(str(block.x) + " " + str(block.y))
+
+            #     fakePiece.rotate(90)
+                
+                    
+
+            moves.extend(self.helperNew(fakePiece, 1, holding))
+
+            # if didntWork:
+            #     print(tetromino + "   " + str(moves))
+           
+            
+        elif (tetromino == "O"):
+            fakePiece = O_Block(Block.dim * 12, Block.dim)
+            moves.extend(self.helperNew(fakePiece, 0, holding))
+
+
+        else:
+            if tetromino == "T":
+                fakePiece = T_Block(Block.dim * 11, Block.dim * 2)
+            elif tetromino == "L":
+                fakePiece = L_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = J_Block(Block.dim * 11, Block.dim * 2)
+
+            moves.extend(self.helperNew(fakePiece, 0, holding))
+
+            if tetromino == "T":
+                fakePiece = T_Block(Block.dim * 11, Block.dim * 2)
+            elif tetromino == "L":
+                fakePiece = L_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = J_Block(Block.dim * 11, Block.dim * 2)
+
+            self.tryRotate(fakePiece, "counter")
+            moves.extend(self.helperNew(fakePiece, 1, holding))
+
+            if tetromino == "T":
+                fakePiece = T_Block(Block.dim * 11, Block.dim * 2)
+            elif tetromino == "L":
+                fakePiece = L_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = J_Block(Block.dim * 11, Block.dim * 2)
+
+            self.tryRotate(fakePiece, "flip")
+            moves.extend(self.helperNew(fakePiece, 2, holding))
+
+            if tetromino == "T":
+                fakePiece = T_Block(Block.dim * 11, Block.dim * 2)
+            elif tetromino == "L":
+                fakePiece = L_Block(Block.dim * 11, Block.dim * 2)
+            else:
+                fakePiece = J_Block(Block.dim * 11, Block.dim * 2)
+
+            self.tryRotate(fakePiece, "clockwise")
+            moves.extend(self.helperNew(fakePiece, 3, holding))
+
+        
+
+        return moves
+    
+    def helperNew(self, tetromino, rotation, holding):
+
+        moves = []
+
+        for i in range (6):
+            self.tryMove(tetromino, "left")
+
+        moves.append([holding, rotation, 0])
+
+        blocks = tetromino.return_blocks()
+        heights = set()
+
+        for block in blocks:
+            heights.add(block.x)
+
+        for i in range(10 - len(heights) + 1):
+            self.tryMove(tetromino, "right")
+            moves.append([holding, rotation, i + 1])
+
+        return moves
+
+
+    def evalMoveNew(self, tetromino, displacement, rotation):
+
+        # factors to consider:
+        #  - lines cleared, make it scale exponentially, 4 lines is a lot better than 1
+        #  - holes made
+        #  - flatness of new board
+        #  - in the right most and not a line block
+        #  - height of the placed block
+        #  - death with placement
+
+        first = 0
+        second = 0
+
+        startingUnevenness = 0
+
+        for y in range(23):
+            if (self.onGroundBool[0][23 - y]):
+                first = 23 - y
+
+        for x in range(9): #find the highest block in each column
+
+            for y in range (23):
+
+                if (self.onGroundBool[x][23 - y]):
+                    second = y
+
+            startingUnevenness += abs(first - second)
+
+            first = second
+            second = 0
+
+        match tetromino:
+            case "I_Piece":
+                fakeShadow = I_Block(Block.dim * 12, Block.dim * 2)
+            case "J_Piece":
+                fakeShadow = J_Block(Block.dim * 11, Block.dim * 2)
+            case "L_Piece":
+                fakeShadow = L_Block(Block.dim * 11, Block.dim * 2)
+            case "O_Piece":
+                fakeShadow = O_Block(Block.dim * 12, Block.dim * 2)
+            case "S_Piece":
+                fakeShadow = S_Block(Block.dim * 11, Block.dim * 2)
+            case "Z_Piece":
+                fakeShadow = Z_Block(Block.dim * 11, Block.dim * 2)
+            case "T_Piece":
+                fakeShadow = T_Block(Block.dim * 11, Block.dim * 2)
+
+        match rotation:
+            case 0:
+                pass
+            case 1:
+                self.tryRotate(fakeShadow, "counter")
+            case 2:
+                self.tryRotate(fakeShadow, "flip")
+            case 3:
+                self.tryRotate(fakeShadow, "clockwise")
+
+        
+
+        for i in range (6):
+            self.tryMove(fakeShadow, "left")
+
+        for i in range(displacement):
+            self.tryMove(fakeShadow, "right")
+
+        while (not self.checkBelow(fakeShadow)):
+            fakeShadow.fall()
+        
+        fakeShadow.update_pos(fakeShadow.centerX, fakeShadow.centerY - Block.dim)
+
+        tetroBlocks = fakeShadow.return_blocks()
+
+        heights = set()
+
+        for block in tetroBlocks: #check if any lines are cleared using the ys
+            heights.add(block.y)
+
+        linesCleared = 0
+
+        loss = False
+
+        for yValue in heights: #check if all the positions are taken in the row
+            hasEmpty = False
+
+            if (yValue > 3):
+                loss = True
+
+
+            for xValue in range(10): #xValue = xValue * Block.dim + 
+                colliding = False
+                for block in tetroBlocks: #check if it is colliding with any of the shadow blocks
+                    if block.x == xValue * Block.dim + Block.dim * 7 and block.y == yValue:
+                        colliding = True
+                        break
+                if (not self.onGroundBool[xValue][int(yValue/Block.dim)] and not colliding): #if it isnt colliding with the shadow block and not colliding with the 
+                    hasEmpty = True
+                    break
+
+            if not hasEmpty:
+                linesCleared += 1
+        
+        uneveness = 0
+        overRight = False
+
+        first = 0
+        second = 0
+
+        for y in range(23):
+            if (self.onGroundBool[0][23 - y]):
+                first = 23 - y
+
+            for block in tetroBlocks:
+                if block.x == Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    first = 23 - y
+
+        for x in range(9): #find the highest block in each column
+
+            for y in range (23):
+
+                if (self.onGroundBool[x][23 - y]):
+                    second = y
+                for block in tetroBlocks:
+                    if block.x == x * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                        second = 23 - y
+
+            uneveness += abs(first - second)
+
+            first = second
+            second = 0
+        
+        
+                    
+
+        holes = 0
+
+        y = 1
+        lowY = 100
+        highY = -1
+
+
+
+        for block in tetroBlocks:
+            holeUnder = True
+            y = 1
+
+            lowY = min(lowY, 24 - block.y / Block.dim)
+            highY = max(highY, 24 - block.y / Block.dim)
+            while holeUnder:
+                for block2 in tetroBlocks:
+                    if block.colliding(block2): 
+                        continue
+                    if block2.x == block.x and block2.y == block.y + y * Block.dim:
+                        holeUnder = False
+                        #print ("under is shadow")
+                        break
+                
+                if int(block.y / Block.dim) + y > 23:
+                    #print("under is floor")
+                    break
+                
+                # print(block.x / Block.dim)
+                # print(block.y / Block.dim)
+
+                if self.onGroundBool[int(block.x / Block.dim) - 7][int(block.y / Block.dim) + y]:
+                    #print ("under is block")
+                    break
+
+                if holeUnder:
+                    holes += 1
+                y+= 1
+
+        
+        for block in tetroBlocks: # checking for if the block is covering on the right column
+            if (block.x == Block.dim * 16): 
+                overRight = True
+
+        secondLast = 0
+        veryLast = 0
+
+        for y in range (23):
+
+            if (self.onGroundBool[8][23 - y]):
+                secondLast = y
+            for block in tetroBlocks:
+                if block.x == (x + 8) * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    secondLast = 23 - y
+
+        for y in range (23):
+
+            if (self.onGroundBool[9][23 - y]):
+                veryLast = y
+            for block in tetroBlocks:
+                if block.x == (x + 8) * Block.dim + Block.dim * 7 and block.y == (23 - y) * Block.dim:
+                    veryLast = 23 - y
+
+
+        lastHeight = abs(veryLast - secondLast)
+
+        right = 0
+
+        if (overRight and tetromino.name != 'I_Piece'):
+            right = -2
+        elif (overRight and tetromino.name == 'I_Piece' and lastHeight < 4):
+            right = -1
+        elif (overRight and tetromino.name == 'I_Piece'):
+            right = 1
+
+        status = [linesCleared, -holes, -(lowY + highY)/2, -abs(startingUnevenness - uneveness), -loss, right]
+        
+        for i in range(10):
+            for j in range (24):
+                if self.onGroundBool[i][j]:
+                    status.append(1)
+                else:
+                    status.append(0)
+
+        return status
+        
+        
+        # rating = (holes /((lowY + highY) /2) * 3)+ ((lowY + highY )/ 4) - (linesCleared * linesCleared) + uneveness/30
+
+        # if (loss):
+        #     rating += 20
+
+        
+
+        # return rating
+    
+        
+        
+
+
+    def make_move_New(self, hold, rotate, movements):
+
+        if (hold == 1):
+            self.hold()
+
+        match rotate:
+            case 0:
+                pass
+            case 1:
+                self.tryRotate(self.falling, "counter")
+            case 2:
+                self.tryRotate(self.falling, "flip")
+            case 3: 
+                self.tryRotate(self.falling, "clockwise")
+            
+
+        for i in range (6):
+            self.tryMove(self.falling, "left")
+
+        for i in range(movements):
+            self.tryMove(self.falling, "right")
+
+        self.hardDrop()
+
 
     # def AI_move1(self):
 
